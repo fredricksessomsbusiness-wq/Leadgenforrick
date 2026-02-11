@@ -1,9 +1,23 @@
 import { supabaseAdmin } from '../supabase';
 import { buildFallbackFirmHash } from '../dedupe';
+import { choosePrimaryContact } from '../decision-maker';
 import { appendRunLog } from './jobs';
-import type { LeadCandidate } from '../../types/domain';
+import type { CrawlResult, LeadCandidate } from '../../types/domain';
 
-export const upsertCollectedLead = async (jobId: string, candidate: LeadCandidate, allowReinclude: boolean) => {
+const splitName = (fullName: string) => {
+  const parts = fullName.trim().split(/\s+/);
+  return {
+    first_name: parts[0] ?? null,
+    last_name: parts.length > 1 ? parts[parts.length - 1] : null
+  };
+};
+
+export const upsertLeadAndCrawl = async (
+  jobId: string,
+  candidate: LeadCandidate,
+  crawl: CrawlResult,
+  allowReinclude: boolean
+) => {
   const fallbackHash = buildFallbackFirmHash(candidate);
 
   const { data: existingRows } = await supabaseAdmin
@@ -37,20 +51,75 @@ export const upsertCollectedLead = async (jobId: string, candidate: LeadCandidat
         google_place_id: candidate.google_place_id,
         source_query: candidate.source_query,
         source_geo_label: candidate.source_geo_label,
-        fallback_firm_hash: fallbackHash
+        fallback_firm_hash: fallbackHash,
+        contact_form_url: crawl.contact_form_url
       },
       { onConflict: 'google_place_id' }
     )
-    .select('id')
+    .select('*')
     .single();
 
   if (leadError) throw leadError;
 
-  await supabaseAdmin.from('job_results').upsert({
-    job_id: jobId,
+  const contactRows = crawl.contacts.map((c) => ({
     lead_id: lead.id,
-    primary_contact_id: null
-  });
+    full_name: c.full_name,
+    title: c.title,
+    ...splitName(c.full_name),
+    email_status: 'none'
+  }));
+
+  let insertedContacts: Array<{ id: string; full_name: string; title: string | null }> = [];
+  if (contactRows.length > 0) {
+    const { data: contactsData, error: contactErr } = await supabaseAdmin
+      .from('contacts')
+      .insert(contactRows)
+      .select('id,full_name,title');
+    if (contactErr) throw contactErr;
+    insertedContacts = contactsData ?? [];
+  }
+
+  if (crawl.emails.length > 0 && insertedContacts.length > 0) {
+    await supabaseAdmin
+      .from('contacts')
+      .update({
+        email: crawl.emails[0],
+        email_status: 'unverified',
+        email_source: 'found_on_site'
+      })
+      .eq('id', insertedContacts[0].id);
+  }
+
+  if (crawl.phones.length > 0 && insertedContacts.length > 0) {
+    await supabaseAdmin.from('contacts').update({ phone_direct: crawl.phones[0] }).eq('id', insertedContacts[0].id);
+  }
+
+  if (crawl.signals.length > 0) {
+    await supabaseAdmin.from('signals').insert(
+      crawl.signals.map((s) => ({
+        lead_id: lead.id,
+        signal_type: s.signal_type,
+        signal_value: s.signal_value,
+        evidence_url: s.evidence_url
+      }))
+    );
+  }
+
+  const primary = choosePrimaryContact(insertedContacts);
+  if (primary) {
+    await supabaseAdmin.from('leads').update({ primary_contact_id: primary.id }).eq('id', lead.id);
+    await supabaseAdmin.from('job_results').upsert({
+      job_id: jobId,
+      lead_id: lead.id,
+      primary_contact_id: primary.id
+    });
+  } else {
+    await supabaseAdmin.from('job_results').upsert({
+      job_id: jobId,
+      lead_id: lead.id,
+      primary_contact_id: null
+    });
+  }
 
   return { leadId: lead.id as string, inserted: true };
 };

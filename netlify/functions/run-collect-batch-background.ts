@@ -1,9 +1,10 @@
 import type { Handler } from '@netlify/functions';
 import { withErrorHandling, json } from './_http';
 import { getJob, appendRunLog, countJobFirmResults, updateJobProgress } from '../../lib/db/jobs';
-import { upsertCollectedLead } from '../../lib/db/collect';
+import { upsertLeadAndCrawl } from '../../lib/db/collect';
 import { buildGeoSegments } from '../../lib/geo';
 import { assertPlacesConfigured, getPlaceDetails, searchPlaces, toLeadCandidate } from '../../lib/places';
+import { crawlWebsite } from '../../lib/crawl';
 import type { ParsedPlan } from '../../types/domain';
 
 const BATCH_PLACE_LIMIT = 15;
@@ -54,7 +55,11 @@ const handler: Handler = withErrorHandling(async (event) => {
     if (!detail) continue;
 
     const candidate = toLeadCandidate(detail, query, segment.label);
-    const result = await upsertCollectedLead(jobId, candidate, Boolean(job.allow_reinclude));
+    const crawl = candidate.website
+      ? await crawlWebsite(candidate.website, Boolean(plan.toggles_json.deep_crawl))
+      : { contact_form_url: null, emails: [], phones: [], contacts: [], signals: [] };
+
+    const result = await upsertLeadAndCrawl(jobId, candidate, crawl, Boolean(job.allow_reinclude));
 
     if (result.inserted) {
       newCount += 1;
