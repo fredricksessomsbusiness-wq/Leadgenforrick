@@ -55,7 +55,7 @@ export default function JobProgressPage({ params }: { params: { id: string } }) 
     return Math.min(100, Math.round((job.progress_count / job.target_firm_count) * 100));
   }, [job]);
 
-  const done = job?.status === 'completed' || (job && job.progress_count >= job.target_firm_count);
+  const done = job?.status === 'completed' || !!(job && job.progress_count >= job.target_firm_count);
 
   return (
     <main>
