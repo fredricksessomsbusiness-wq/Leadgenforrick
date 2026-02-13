@@ -53,9 +53,14 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
     setRows(nextRows);
 
     setSelectedLeadIds((prev) => {
-      const available = new Set(nextRows.map((r: any) => String(r.lead_id)));
+      const available = new Set<string>(
+        nextRows
+          .map((r: any) => r?.lead_id)
+          .filter((id: unknown): id is string => typeof id === 'string')
+      );
       const kept = prev.filter((id) => available.has(id));
-      return kept.length > 0 || prev.length > 0 ? kept : [...available];
+      if (kept.length > 0 || prev.length > 0) return kept;
+      return Array.from(available);
     });
   };
 
