@@ -46,6 +46,22 @@ const planFootprintKey = (plan?: ParsedPlan): string => {
   return `${plan.business_type}|state|${plan.geo_params.state_code ?? 'NC'}`;
 };
 
+const parseZipInput = (value: string): string[] =>
+  value
+    .split(/[\s,]+/)
+    .map((z) => z.trim())
+    .filter((z) => /^\d{5}$/.test(z));
+
+const stateFromPlan = (plan?: ParsedPlan): string => {
+  if (!plan) return 'NA';
+  const fromGeo = String(plan.geo_params.state_code ?? '').trim().toUpperCase();
+  if (/^[A-Z]{2}$/.test(fromGeo)) return fromGeo;
+  const fromCenter = String(plan.geo_params.center_city_state ?? '');
+  const m = fromCenter.match(/,\s*([A-Za-z]{2})\b/);
+  if (m) return m[1].toUpperCase();
+  return 'NA';
+};
+
 export default function CreateJobPage() {
   const router = useRouter();
   const [prompt, setPrompt] = useState('Find estate planning law firms within 25 miles of Durham NC, collect 500 firms, decision makers, export CSV');
@@ -56,6 +72,10 @@ export default function CreateJobPage() {
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [templateName, setTemplateName] = useState('');
   const [templateDescription, setTemplateDescription] = useState('');
+  const [zipTrackerState, setZipTrackerState] = useState('NC');
+  const [zipTrackerInput, setZipTrackerInput] = useState('');
+  const [zipTrackerBusinessType, setZipTrackerBusinessType] = useState('estate planning law firms');
+  const [zipTrackerTargetCount, setZipTrackerTargetCount] = useState(100);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -188,6 +208,48 @@ export default function CreateJobPage() {
     }
   };
 
+  const runZipMapByState = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const job of history) {
+      const plan = job.parsed_plan_json;
+      if (!plan) continue;
+      if (plan.geo_mode !== 'zip_sweep') continue;
+      const state = stateFromPlan(plan);
+      if (!map.has(state)) map.set(state, new Set<string>());
+      const current = map.get(state)!;
+      for (const zip of plan.geo_params.zip_list ?? []) {
+        if (/^\d{5}$/.test(zip)) current.add(zip);
+      }
+    }
+    return map;
+  }, [history]);
+
+  const trackedStates = useMemo(() => Array.from(runZipMapByState.keys()).sort(), [runZipMapByState]);
+
+  useEffect(() => {
+    if (trackedStates.length === 0) return;
+    if (!trackedStates.includes(zipTrackerState)) setZipTrackerState(trackedStates[0]);
+  }, [trackedStates, zipTrackerState]);
+
+  const alreadyRunForState = useMemo(
+    () => Array.from(runZipMapByState.get(zipTrackerState) ?? new Set<string>()).sort(),
+    [runZipMapByState, zipTrackerState]
+  );
+
+  const requestedZips = useMemo(() => parseZipInput(zipTrackerInput), [zipTrackerInput]);
+
+  const zipComparison = useMemo(() => {
+    const prior = new Set(alreadyRunForState);
+    const already = requestedZips.filter((z) => prior.has(z));
+    const missing = requestedZips.filter((z) => !prior.has(z));
+    return { already, missing };
+  }, [alreadyRunForState, requestedZips]);
+
+  const missingZipPrompt = useMemo(() => {
+    if (zipComparison.missing.length === 0) return '';
+    return `Find ${zipTrackerBusinessType} in ${zipTrackerState} by zip sweep (${zipComparison.missing.join(', ')}), collect ${zipTrackerTargetCount} unique firms, identify one primary decision maker per firm, capture phone and contact form URL when available, and prepare CSV export.`;
+  }, [zipComparison.missing, zipTrackerBusinessType, zipTrackerState, zipTrackerTargetCount]);
+
   return (
     <main>
       <h1>Local Lead Finder</h1>
@@ -299,6 +361,88 @@ export default function CreateJobPage() {
         </div>
         <div className="inline-actions">
           <button className="secondary" onClick={saveTemplate}>Save Template</button>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3>ZIP Coverage Tracker</h3>
+        <p>Track what ZIPs you already scanned by state, and generate a prompt for only the missing ZIPs.</p>
+        <div className="grid grid-2">
+          <label>
+            State
+            <select value={zipTrackerState} onChange={(e) => setZipTrackerState(e.target.value)}>
+              {trackedStates.length === 0 && <option value="NC">NC</option>}
+              {trackedStates.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Business Type (for prompt)
+            <input value={zipTrackerBusinessType} onChange={(e) => setZipTrackerBusinessType(e.target.value)} />
+          </label>
+          <label>
+            Candidate ZIPs (comma or space separated)
+            <textarea
+              rows={3}
+              value={zipTrackerInput}
+              onChange={(e) => setZipTrackerInput(e.target.value)}
+              placeholder="27701, 27703, 27704, 27705"
+            />
+          </label>
+          <label>
+            Target Firm Count (for prompt)
+            <input
+              type="number"
+              min={1}
+              max={10000}
+              value={zipTrackerTargetCount}
+              onChange={(e) => setZipTrackerTargetCount(Number(e.target.value))}
+            />
+          </label>
+        </div>
+        <div className="summary-grid">
+          <div className="stat-tile">
+            <p className="stat-k">Already Tracked In {zipTrackerState}</p>
+            <p className="stat-v">{alreadyRunForState.length}</p>
+          </div>
+          <div className="stat-tile">
+            <p className="stat-k">Requested ZIPs</p>
+            <p className="stat-v">{requestedZips.length}</p>
+          </div>
+          <div className="stat-tile">
+            <p className="stat-k">Already Run (Requested)</p>
+            <p className="stat-v">{zipComparison.already.length}</p>
+          </div>
+          <div className="stat-tile">
+            <p className="stat-k">Missing (Use In Next Prompt)</p>
+            <p className="stat-v">{zipComparison.missing.length}</p>
+          </div>
+        </div>
+        <div className="grid grid-2" style={{ marginTop: 10 }}>
+          <div>
+            <strong>Already Run ZIPs</strong>
+            <p>{zipComparison.already.length > 0 ? zipComparison.already.join(', ') : 'None from your request were run before.'}</p>
+          </div>
+          <div>
+            <strong>Missing ZIPs</strong>
+            <p>{zipComparison.missing.length > 0 ? zipComparison.missing.join(', ') : 'No missing ZIPs from your request.'}</p>
+          </div>
+        </div>
+        <label>
+          Suggested Prompt (missing ZIPs only)
+          <textarea rows={4} value={missingZipPrompt} readOnly />
+        </label>
+        <div className="inline-actions">
+          <button
+            className="secondary"
+            onClick={() => setPrompt(missingZipPrompt)}
+            disabled={!missingZipPrompt}
+          >
+            Use This Prompt
+          </button>
         </div>
       </div>
 
