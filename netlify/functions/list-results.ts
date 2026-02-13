@@ -29,9 +29,14 @@ const handler: Handler = withErrorHandling(async (event) => {
   const leadIds = (data ?? []).map((r: any) => r.lead_id);
   const { data: signals } = await supabaseAdmin.from('signals').select('*').in('lead_id', leadIds.length ? leadIds : ['']);
   const { data: contacts } = await supabaseAdmin.from('contacts').select('*').in('lead_id', leadIds.length ? leadIds : ['']);
+  const { data: adsObs } = await supabaseAdmin
+    .from('ads_library_observations')
+    .select('*')
+    .in('lead_id', leadIds.length ? leadIds : ['']);
 
   const signalsByLead = new Map<string, any[]>();
   const contactsByLead = new Map<string, any[]>();
+  const adsByLead = new Map<string, any[]>();
   for (const s of signals ?? []) {
     const key = s.lead_id as string;
     signalsByLead.set(key, [...(signalsByLead.get(key) ?? []), s]);
@@ -40,11 +45,16 @@ const handler: Handler = withErrorHandling(async (event) => {
     const key = c.lead_id as string;
     contactsByLead.set(key, [...(contactsByLead.get(key) ?? []), c]);
   }
+  for (const ad of adsObs ?? []) {
+    const key = ad.lead_id as string;
+    adsByLead.set(key, [...(adsByLead.get(key) ?? []), ad]);
+  }
 
   const merged = (data ?? []).map((r: any) => ({
     ...r,
     signals: signalsByLead.get(r.lead_id) ?? [],
-    lead_contacts: contactsByLead.get(r.lead_id) ?? []
+    lead_contacts: contactsByLead.get(r.lead_id) ?? [],
+    ads_observations: adsByLead.get(r.lead_id) ?? []
   }));
 
   return json(200, { results: merged });

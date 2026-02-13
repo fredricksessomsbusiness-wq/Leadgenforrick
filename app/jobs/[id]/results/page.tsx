@@ -46,6 +46,13 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
   const [enrichmentBatchSize, setEnrichmentBatchSize] = useState(20);
   const [enrichmentLeadsPerCompany, setEnrichmentLeadsPerCompany] = useState(3);
   const [enrichmentSpendCap, setEnrichmentSpendCap] = useState('0.60');
+  const [adsBusy, setAdsBusy] = useState(false);
+  const [adsEstimate, setAdsEstimate] = useState<any | null>(null);
+  const [adsPeriodDays, setAdsPeriodDays] = useState(30);
+  const [adsMinCount, setAdsMinCount] = useState(1);
+  const [adsBatchSize, setAdsBatchSize] = useState(20);
+  const [adsSpendCap, setAdsSpendCap] = useState('15');
+  const [adsOnlyFilter, setAdsOnlyFilter] = useState(false);
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [showGuide, setShowGuide] = useState(false);
   const [error, setError] = useState('');
@@ -197,6 +204,52 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
     }
   };
 
+  const runAdsEstimate = async () => {
+    setError('');
+    if (selectedCount === 0) {
+      setError('Select at least one lead before estimating ads scan cost.');
+      return;
+    }
+    const res = await fetch('/.netlify/functions/estimate-ads-library', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jobId: params.id,
+        selectedLeadIds
+      })
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Failed ads scan estimate');
+    setAdsEstimate(json.estimate);
+  };
+
+  const runAdsBatch = async () => {
+    setAdsBusy(true);
+    setError('');
+    try {
+      if (selectedCount === 0) throw new Error('Select at least one lead before running ads scan.');
+      const res = await fetch('/.netlify/functions/run-ads-library-batch-background', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobId: params.id,
+          selectedLeadIds,
+          periodDays: adsPeriodDays,
+          minAds: adsMinCount,
+          batchSize: adsBatchSize,
+          spendCap: Number(adsSpendCap)
+        })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Ads scan failed');
+      await loadResults();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ads scan failed');
+    } finally {
+      setAdsBusy(false);
+    }
+  };
+
   const contactConfidenceFromSignals = (row: any, contactId: string | null | undefined): number | null => {
     if (!contactId) return null;
     const signals = Array.isArray(row.signals) ? row.signals : [];
@@ -209,6 +262,21 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
       return null;
     }
   };
+
+  const latestAdsObservation = (row: any) => {
+    const obs = Array.isArray(row.ads_observations) ? row.ads_observations : [];
+    if (obs.length === 0) return null;
+    return [...obs].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0] ?? null;
+  };
+
+  const filteredRows = useMemo(() => {
+    if (!adsOnlyFilter) return rows;
+    return rows.filter((row) => {
+      const latest = latestAdsObservation(row);
+      if (!latest) return false;
+      return Number(latest.ads_count_in_period ?? 0) >= adsMinCount;
+    });
+  }, [rows, adsOnlyFilter, adsMinCount]);
 
   return (
     <main>
@@ -386,6 +454,59 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
       </div>
 
       <div className="card">
+        <h3>Google Ads Library Scan (Optional)</h3>
+        <p>
+          Find which selected companies are actively running Google ads, then filter by ad volume and time window.
+        </p>
+        <div className="grid grid-2" style={{ marginTop: 12 }}>
+          <label>
+            Time window (days)
+            <input
+              type="number"
+              min={1}
+              max={365}
+              value={adsPeriodDays}
+              onChange={(e) => setAdsPeriodDays(Number(e.target.value))}
+            />
+          </label>
+          <label>
+            Minimum ads in period
+            <input
+              type="number"
+              min={0}
+              value={adsMinCount}
+              onChange={(e) => setAdsMinCount(Number(e.target.value))}
+            />
+          </label>
+          <label>
+            Scan batch size
+            <input
+              type="number"
+              min={1}
+              max={200}
+              value={adsBatchSize}
+              onChange={(e) => setAdsBatchSize(Number(e.target.value))}
+            />
+          </label>
+          <label>
+            Ads scan spend cap ($)
+            <input value={adsSpendCap} onChange={(e) => setAdsSpendCap(e.target.value)} />
+          </label>
+        </div>
+        <div className="inline-actions">
+          <button onClick={runAdsEstimate}>Estimate Ads Scan Cost</button>
+          <button className="secondary" onClick={runAdsBatch} disabled={adsBusy}>
+            {adsBusy ? 'Running...' : 'Run Ads Scan Batch'}
+          </button>
+          <label>
+            <input type="checkbox" checked={adsOnlyFilter} onChange={(e) => setAdsOnlyFilter(e.target.checked)} />{' '}
+            Show only leads matching min ads filter
+          </label>
+        </div>
+        {adsEstimate && <pre>{JSON.stringify(adsEstimate, null, 2)}</pre>}
+      </div>
+
+      <div className="card">
         <h3>Lead Table</h3>
         <div className="table-wrap">
           <table>
@@ -397,15 +518,18 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
                 <th>Website</th>
                 <th>Contact</th>
                 <th>Top 3 Leads</th>
+                <th>Ads in Period</th>
+                <th>Ads Active</th>
                 <th>Email</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, idx) => {
+              {filteredRows.map((r, idx) => {
                 const lead = Array.isArray(r.leads) ? r.leads[0] : r.leads;
                 const contact = Array.isArray(r.contacts) ? r.contacts[0] : r.contacts;
                 const leadContacts = Array.isArray(r.lead_contacts) ? r.lead_contacts : [];
+                const ads = latestAdsObservation(r);
                 const leadId = String(r.lead_id);
                 const selected = selectedLeadIds.includes(leadId);
 
@@ -434,6 +558,8 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
                         );
                       })}
                     </td>
+                    <td>{ads?.ads_count_in_period ?? 0}</td>
+                    <td>{ads?.ads_count_active ?? 0}</td>
                     <td>{contact?.email}</td>
                     <td>
                       <span className={statusBadgeClass(contact?.email_status)}>{contact?.email_status ?? 'none'}</span>
