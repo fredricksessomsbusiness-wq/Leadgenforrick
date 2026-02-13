@@ -36,28 +36,39 @@ export const upsertLeadAndCrawl = async (
     return { leadId: existing.id as string, inserted: false };
   }
 
-  const { data: lead, error: leadError } = await supabaseAdmin
-    .from('leads')
-    .upsert(
-      {
-        name: candidate.name,
-        website: candidate.website,
-        phone: candidate.phone,
-        address: candidate.address,
-        city: candidate.city,
-        state: candidate.state,
-        zip: candidate.zip,
-        google_maps_url: candidate.google_maps_url,
-        google_place_id: candidate.google_place_id,
-        source_query: candidate.source_query,
-        source_geo_label: candidate.source_geo_label,
-        fallback_firm_hash: fallbackHash,
-        contact_form_url: crawl.contact_form_url
-      },
-      { onConflict: 'google_place_id' }
-    )
-    .select('*')
-    .single();
+  const leadPayload = {
+    name: candidate.name,
+    website: candidate.website,
+    phone: candidate.phone,
+    address: candidate.address,
+    city: candidate.city,
+    state: candidate.state,
+    zip: candidate.zip,
+    google_maps_url: candidate.google_maps_url,
+    google_place_id: candidate.google_place_id,
+    source_query: candidate.source_query,
+    source_geo_label: candidate.source_geo_label,
+    fallback_firm_hash: fallbackHash,
+    contact_form_url: crawl.contact_form_url
+  };
+
+  let lead: any = null;
+  let leadError: any = null;
+
+  if (existing) {
+    const { data, error } = await supabaseAdmin
+      .from('leads')
+      .update(leadPayload)
+      .eq('id', existing.id)
+      .select('*')
+      .single();
+    lead = data;
+    leadError = error;
+  } else {
+    const { data, error } = await supabaseAdmin.from('leads').insert(leadPayload).select('*').single();
+    lead = data;
+    leadError = error;
+  }
 
   if (leadError) throw leadError;
 
