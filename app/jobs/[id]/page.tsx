@@ -16,6 +16,7 @@ interface Job {
 }
 
 interface CollectBatchLog {
+  [key: string]: unknown;
   event: 'collect_batch';
   query?: string;
   segment?: string;
