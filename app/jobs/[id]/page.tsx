@@ -40,8 +40,16 @@ export default function JobProgressPage({ params }: { params: { id: string } }) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ jobId: params.id })
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Batch failed');
+      const text = await res.text();
+      let json: { error?: string } = {};
+      if (text) {
+        try {
+          json = JSON.parse(text);
+        } catch {
+          // Netlify background functions can return empty/non-JSON bodies.
+        }
+      }
+      if (!res.ok) throw new Error(json.error || text || `Batch failed (${res.status})`);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Batch failed');
