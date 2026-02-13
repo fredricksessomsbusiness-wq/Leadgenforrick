@@ -25,6 +25,8 @@ export const env = {
   supabaseAnonKey,
   supabaseServiceKey,
   googlePlacesApiKey: firstDefined('GOOGLE_PLACES_API_KEY'),
+  googleTextSearchUnitCost: Number(firstDefined('GOOGLE_TEXTSEARCH_UNIT_COST_USD') || '0'),
+  googleDetailsUnitCost: Number(firstDefined('GOOGLE_DETAILS_UNIT_COST_USD') || '0'),
   anymailApiKey: firstDefined('ANYMAIL_SEARCH_API_KEY'),
   anymailUnitCost: Number(firstDefined('ANYMAIL_UNIT_COST_USD') || '0.01'),
   verificationBufferMultiplier: Number(firstDefined('VERIFICATION_COST_BUFFER_MULTIPLIER') || '1.15')

@@ -2,15 +2,27 @@ import type { Handler } from '@netlify/functions';
 import { withErrorHandling, json } from './_http';
 import { supabaseAdmin } from '../../lib/supabase';
 
+const parseJobIds = (event: Parameters<Handler>[0]): string[] => {
+  const single = event.queryStringParameters?.jobId;
+  const multi = event.queryStringParameters?.jobIds;
+  if (multi) {
+    return multi
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean);
+  }
+  return single ? [single] : [];
+};
+
 const handler: Handler = withErrorHandling(async (event) => {
-  const jobId = event.queryStringParameters?.jobId;
-  if (!jobId) return json(400, { error: 'jobId is required' });
+  const jobIds = parseJobIds(event);
+  if (jobIds.length === 0) return json(400, { error: 'jobId or jobIds is required' });
 
   const { data, error } = await supabaseAdmin
     .from('job_results')
-    .select('lead_id, leads!inner(*), contacts!job_results_primary_contact_id_fkey(*)')
-    .eq('job_id', jobId)
-    .limit(2000);
+    .select('job_id, lead_id, leads!inner(*), contacts!job_results_primary_contact_id_fkey(*)')
+    .in('job_id', jobIds)
+    .limit(10000);
 
   if (error) throw error;
 

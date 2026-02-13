@@ -6,6 +6,7 @@ import { buildGeoSegments } from '../../lib/geo';
 import { assertPlacesConfigured, getPlaceDetails, searchPlaces, toLeadCandidate } from '../../lib/places';
 import { crawlWebsite } from '../../lib/crawl';
 import type { ParsedPlan } from '../../types/domain';
+import { env } from '../../lib/env';
 
 const BATCH_PLACE_LIMIT = 15;
 
@@ -18,6 +19,13 @@ const handler: Handler = withErrorHandling(async (event) => {
   if (!jobId) return json(400, { error: 'jobId is required' });
 
   const job = await getJob(jobId);
+  const isCanceled = job.status === 'failed' && String(job.error_log ?? '').includes('Canceled by user');
+  if (isCanceled) {
+    return json(200, { done: true, canceled: true, progressCount: job.progress_count ?? 0 });
+  }
+  if (job.status === 'completed') {
+    return json(200, { done: true, progressCount: job.progress_count ?? 0 });
+  }
   const plan = job.parsed_plan_json as ParsedPlan;
   const segments = buildGeoSegments(plan);
 
@@ -48,10 +56,13 @@ const handler: Handler = withErrorHandling(async (event) => {
   const candidates = raw.slice(0, BATCH_PLACE_LIMIT);
   let newCount = 0;
   let duplicateCount = 0;
+  const textSearchCalls = 1;
+  let detailsCalls = 0;
 
   for (const item of candidates) {
     if (progressCount >= job.target_firm_count) break;
     const detail = await getPlaceDetails(item.place_id);
+    detailsCalls += 1;
     if (!detail) continue;
 
     const candidate = toLeadCandidate(detail, query, segment.label);
@@ -76,6 +87,14 @@ const handler: Handler = withErrorHandling(async (event) => {
     found: candidates.length,
     new: newCount,
     duplicate: duplicateCount,
+    api_calls: {
+      textsearch: textSearchCalls,
+      details: detailsCalls,
+      total: textSearchCalls + detailsCalls
+    },
+    estimated_api_cost_usd: Number(
+      (textSearchCalls * env.googleTextSearchUnitCost + detailsCalls * env.googleDetailsUnitCost).toFixed(4)
+    ),
     progress_count: progressCount
   });
 

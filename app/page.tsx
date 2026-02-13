@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { PlanEditor } from '@/components/PlanEditor';
@@ -56,6 +57,9 @@ export default function CreateJobPage() {
   return (
     <main>
       <h1>Local Lead Finder</h1>
+      <p>
+        <Link href="/jobs">View All Lists</Link>
+      </p>
       <div className="card">
         <h3>Create Job</h3>
         <label htmlFor="prompt">English Prompt</label>

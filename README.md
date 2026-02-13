@@ -29,6 +29,8 @@ Copy `.env.example` -> `.env` and set:
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `GOOGLE_PLACES_API_KEY` (required for Phase 1 collection)
+- `GOOGLE_TEXTSEARCH_UNIT_COST_USD` (optional, for API cost estimate in progress UI)
+- `GOOGLE_DETAILS_UNIT_COST_USD` (optional, for API cost estimate in progress UI)
 - `ANYMAIL_SEARCH_API_KEY` (required only for verification)
 - `ANYMAIL_UNIT_COST_USD` (default `0.01`)
 - `VERIFICATION_COST_BUFFER_MULTIPLIER` (default `1.15`)
@@ -53,7 +55,9 @@ Copy `.env.example` -> `.env` and set:
 - `POST /.netlify/functions/plan-from-prompt`
 - `POST /.netlify/functions/create-job`
 - `GET /.netlify/functions/get-job?jobId=...`
+- `GET /.netlify/functions/list-jobs`
 - `POST /.netlify/functions/run-collect-batch-background`
+- `POST /.netlify/functions/cancel-job`
 - `GET /.netlify/functions/list-results?jobId=...`
 - `GET /.netlify/functions/export-csv?jobId=...&columns=...`
 - `POST /.netlify/functions/estimate-verification`
