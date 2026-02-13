@@ -27,6 +27,10 @@ export const env = {
   googlePlacesApiKey: firstDefined('GOOGLE_PLACES_API_KEY'),
   googleTextSearchUnitCost: Number(firstDefined('GOOGLE_TEXTSEARCH_UNIT_COST_USD') || '0'),
   googleDetailsUnitCost: Number(firstDefined('GOOGLE_DETAILS_UNIT_COST_USD') || '0'),
+  googleMonthlyFreeCreditUsd: Number(firstDefined('GOOGLE_MONTHLY_FREE_CREDIT_USD') || '0'),
+  aiArkCreditCostUsd: Number(firstDefined('AI_ARK_CREDIT_COST_USD') || '0.00397'),
+  aiArkLeadEnrichmentCredits: Number(firstDefined('AI_ARK_LEAD_ENRICHMENT_CREDITS') || '0.5'),
+  aiArkDeepProfileCredits: Number(firstDefined('AI_ARK_DEEP_PROFILE_CREDITS') || '4.0'),
   anymailApiKey: firstDefined('ANYMAIL_SEARCH_API_KEY'),
   anymailUnitCost: Number(firstDefined('ANYMAIL_UNIT_COST_USD') || '0.01'),
   verificationBufferMultiplier: Number(firstDefined('VERIFICATION_COST_BUFFER_MULTIPLIER') || '1.15')

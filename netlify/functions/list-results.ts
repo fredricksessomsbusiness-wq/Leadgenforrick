@@ -28,16 +28,23 @@ const handler: Handler = withErrorHandling(async (event) => {
 
   const leadIds = (data ?? []).map((r: any) => r.lead_id);
   const { data: signals } = await supabaseAdmin.from('signals').select('*').in('lead_id', leadIds.length ? leadIds : ['']);
+  const { data: contacts } = await supabaseAdmin.from('contacts').select('*').in('lead_id', leadIds.length ? leadIds : ['']);
 
   const signalsByLead = new Map<string, any[]>();
+  const contactsByLead = new Map<string, any[]>();
   for (const s of signals ?? []) {
     const key = s.lead_id as string;
     signalsByLead.set(key, [...(signalsByLead.get(key) ?? []), s]);
   }
+  for (const c of contacts ?? []) {
+    const key = c.lead_id as string;
+    contactsByLead.set(key, [...(contactsByLead.get(key) ?? []), c]);
+  }
 
   const merged = (data ?? []).map((r: any) => ({
     ...r,
-    signals: signalsByLead.get(r.lead_id) ?? []
+    signals: signalsByLead.get(r.lead_id) ?? [],
+    lead_contacts: contactsByLead.get(r.lead_id) ?? []
   }));
 
   return json(200, { results: merged });
