@@ -21,6 +21,16 @@ interface JobTemplate {
   plan_json: ParsedPlan;
 }
 
+const STATE_CODES = [
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
+  'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
+  'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+  'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
+  'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'
+] as const;
+
+const USPS_ZIP_DATASET_URL = 'https://cdn.statically.io/gh/pseudosavant/USPSZIPCodes/main/dist/ZIPCodes.json';
+
 const areaSummary = (plan?: ParsedPlan): string => {
   if (!plan) return 'unknown';
   if (plan.geo_mode === 'radius') {
@@ -46,12 +56,6 @@ const planFootprintKey = (plan?: ParsedPlan): string => {
   return `${plan.business_type}|state|${plan.geo_params.state_code ?? 'NC'}`;
 };
 
-const parseZipInput = (value: string): string[] =>
-  value
-    .split(/[\s,]+/)
-    .map((z) => z.trim())
-    .filter((z) => /^\d{5}$/.test(z));
-
 const stateFromPlan = (plan?: ParsedPlan): string => {
   if (!plan) return 'NA';
   const fromGeo = String(plan.geo_params.state_code ?? '').trim().toUpperCase();
@@ -72,10 +76,11 @@ export default function CreateJobPage() {
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [templateName, setTemplateName] = useState('');
   const [templateDescription, setTemplateDescription] = useState('');
-  const [zipTrackerState, setZipTrackerState] = useState('NC');
-  const [zipTrackerInput, setZipTrackerInput] = useState('');
-  const [zipTrackerBusinessType, setZipTrackerBusinessType] = useState('estate planning law firms');
-  const [zipTrackerTargetCount, setZipTrackerTargetCount] = useState(100);
+  const [zipTrackerState, setZipTrackerState] = useState<(typeof STATE_CODES)[number]>('NC');
+  const [zipSearch, setZipSearch] = useState('');
+  const [selectedTrackerZips, setSelectedTrackerZips] = useState<string[]>([]);
+  const [stateZipMap, setStateZipMap] = useState<Record<string, string[]>>({});
+  const [zipDatasetError, setZipDatasetError] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -96,6 +101,35 @@ export default function CreateJobPage() {
   useEffect(() => {
     loadHistory().catch(() => undefined);
     loadTemplates().catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const loadZipDataset = async () => {
+      try {
+        const res = await fetch(USPS_ZIP_DATASET_URL);
+        if (!res.ok) throw new Error(`ZIP dataset fetch failed (${res.status})`);
+        const data = (await res.json()) as Record<string, { state: string }>;
+        const map = new Map<string, Set<string>>();
+
+        for (const [zip, detail] of Object.entries(data)) {
+          if (!/^\d{5}$/.test(zip)) continue;
+          const state = String(detail?.state ?? '').toUpperCase();
+          if (!STATE_CODES.includes(state as (typeof STATE_CODES)[number])) continue;
+          if (!map.has(state)) map.set(state, new Set<string>());
+          map.get(state)!.add(zip);
+        }
+
+        const normalized: Record<string, string[]> = {};
+        for (const state of STATE_CODES) {
+          normalized[state] = Array.from(map.get(state) ?? new Set<string>()).sort();
+        }
+        setStateZipMap(normalized);
+      } catch (e) {
+        setZipDatasetError(e instanceof Error ? e.message : 'Failed to load ZIP dataset');
+      }
+    };
+
+    loadZipDataset().catch(() => undefined);
   }, []);
 
   const parsePlan = async () => {
@@ -208,47 +242,46 @@ export default function CreateJobPage() {
     }
   };
 
-  const runZipMapByState = useMemo(() => {
-    const map = new Map<string, Set<string>>();
+  const runZipCountByState = useMemo(() => {
+    const map = new Map<string, Map<string, number>>();
     for (const job of history) {
       const plan = job.parsed_plan_json;
       if (!plan) continue;
       if (plan.geo_mode !== 'zip_sweep') continue;
       const state = stateFromPlan(plan);
-      if (!map.has(state)) map.set(state, new Set<string>());
+      if (!map.has(state)) map.set(state, new Map<string, number>());
       const current = map.get(state)!;
       for (const zip of plan.geo_params.zip_list ?? []) {
-        if (/^\d{5}$/.test(zip)) current.add(zip);
+        if (/^\d{5}$/.test(zip)) {
+          current.set(zip, (current.get(zip) ?? 0) + 1);
+        }
       }
     }
     return map;
   }, [history]);
 
-  const trackedStates = useMemo(() => Array.from(runZipMapByState.keys()).sort(), [runZipMapByState]);
+  const zipsForSelectedState = useMemo(() => stateZipMap[zipTrackerState] ?? [], [stateZipMap, zipTrackerState]);
 
-  useEffect(() => {
-    if (trackedStates.length === 0) return;
-    if (!trackedStates.includes(zipTrackerState)) setZipTrackerState(trackedStates[0]);
-  }, [trackedStates, zipTrackerState]);
+  const filteredStateZips = useMemo(() => {
+    const t = zipSearch.trim();
+    if (!t) return zipsForSelectedState;
+    return zipsForSelectedState.filter((z) => z.includes(t));
+  }, [zipsForSelectedState, zipSearch]);
 
-  const alreadyRunForState = useMemo(
-    () => Array.from(runZipMapByState.get(zipTrackerState) ?? new Set<string>()).sort(),
-    [runZipMapByState, zipTrackerState]
+  const stateRunCountMap = useMemo(
+    () => runZipCountByState.get(zipTrackerState) ?? new Map<string, number>(),
+    [runZipCountByState, zipTrackerState]
   );
 
-  const requestedZips = useMemo(() => parseZipInput(zipTrackerInput), [zipTrackerInput]);
+  useEffect(() => {
+    setSelectedTrackerZips((prev) => prev.filter((z) => zipsForSelectedState.includes(z)));
+  }, [zipsForSelectedState]);
 
-  const zipComparison = useMemo(() => {
-    const prior = new Set(alreadyRunForState);
-    const already = requestedZips.filter((z) => prior.has(z));
-    const missing = requestedZips.filter((z) => !prior.has(z));
-    return { already, missing };
-  }, [alreadyRunForState, requestedZips]);
+  const toggleTrackerZip = (zip: string) => {
+    setSelectedTrackerZips((prev) => (prev.includes(zip) ? prev.filter((z) => z !== zip) : [...prev, zip]));
+  };
 
-  const missingZipPrompt = useMemo(() => {
-    if (zipComparison.missing.length === 0) return '';
-    return `Find ${zipTrackerBusinessType} in ${zipTrackerState} by zip sweep (${zipComparison.missing.join(', ')}), collect ${zipTrackerTargetCount} unique firms, identify one primary decision maker per firm, capture phone and contact form URL when available, and prepare CSV export.`;
-  }, [zipComparison.missing, zipTrackerBusinessType, zipTrackerState, zipTrackerTargetCount]);
+  const trackerZipOutput = useMemo(() => [...selectedTrackerZips].sort().join(', '), [selectedTrackerZips]);
 
   return (
     <main>
@@ -366,13 +399,18 @@ export default function CreateJobPage() {
 
       <div className="card">
         <h3>ZIP Coverage Tracker</h3>
-        <p>Track what ZIPs you already scanned by state, and generate a prompt for only the missing ZIPs.</p>
+        <p>
+          Pick a state, check ZIP codes, and copy only the selected ZIP list. Run count shows how many times each ZIP
+          has been used in past prompts.
+        </p>
         <div className="grid grid-2">
           <label>
-            State
-            <select value={zipTrackerState} onChange={(e) => setZipTrackerState(e.target.value)}>
-              {trackedStates.length === 0 && <option value="NC">NC</option>}
-              {trackedStates.map((s) => (
+            State (50-state toggle)
+            <select
+              value={zipTrackerState}
+              onChange={(e) => setZipTrackerState(e.target.value as (typeof STATE_CODES)[number])}
+            >
+              {STATE_CODES.map((s) => (
                 <option key={s} value={s}>
                   {s}
                 </option>
@@ -380,69 +418,88 @@ export default function CreateJobPage() {
             </select>
           </label>
           <label>
-            Business Type (for prompt)
-            <input value={zipTrackerBusinessType} onChange={(e) => setZipTrackerBusinessType(e.target.value)} />
-          </label>
-          <label>
-            Candidate ZIPs (comma or space separated)
-            <textarea
-              rows={3}
-              value={zipTrackerInput}
-              onChange={(e) => setZipTrackerInput(e.target.value)}
-              placeholder="27701, 27703, 27704, 27705"
-            />
-          </label>
-          <label>
-            Target Firm Count (for prompt)
-            <input
-              type="number"
-              min={1}
-              max={10000}
-              value={zipTrackerTargetCount}
-              onChange={(e) => setZipTrackerTargetCount(Number(e.target.value))}
-            />
+            ZIP filter
+            <input value={zipSearch} onChange={(e) => setZipSearch(e.target.value)} placeholder="Type ZIP prefix..." />
           </label>
         </div>
+        {zipDatasetError && <p style={{ color: 'var(--danger)' }}>ZIP dataset load error: {zipDatasetError}</p>}
         <div className="summary-grid">
           <div className="stat-tile">
-            <p className="stat-k">Already Tracked In {zipTrackerState}</p>
-            <p className="stat-v">{alreadyRunForState.length}</p>
+            <p className="stat-k">ZIPs In {zipTrackerState}</p>
+            <p className="stat-v">{zipsForSelectedState.length}</p>
           </div>
           <div className="stat-tile">
-            <p className="stat-k">Requested ZIPs</p>
-            <p className="stat-v">{requestedZips.length}</p>
+            <p className="stat-k">Visible ZIPs</p>
+            <p className="stat-v">{filteredStateZips.length}</p>
           </div>
           <div className="stat-tile">
-            <p className="stat-k">Already Run (Requested)</p>
-            <p className="stat-v">{zipComparison.already.length}</p>
-          </div>
-          <div className="stat-tile">
-            <p className="stat-k">Missing (Use In Next Prompt)</p>
-            <p className="stat-v">{zipComparison.missing.length}</p>
+            <p className="stat-k">Selected ZIPs</p>
+            <p className="stat-v">{selectedTrackerZips.length}</p>
           </div>
         </div>
         <div className="grid grid-2" style={{ marginTop: 10 }}>
           <div>
-            <strong>Already Run ZIPs</strong>
-            <p>{zipComparison.already.length > 0 ? zipComparison.already.join(', ') : 'None from your request were run before.'}</p>
+            <strong>ZIP List ({zipTrackerState})</strong>
+            <div className="table-wrap" style={{ maxHeight: 320 }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Select</th>
+                    <th>ZIP</th>
+                    <th>Run Count</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredStateZips.map((zip) => {
+                    const checked = selectedTrackerZips.includes(zip);
+                    const runCount = stateRunCountMap.get(zip) ?? 0;
+                    return (
+                      <tr key={zip}>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleTrackerZip(zip)}
+                            aria-label={`Select ZIP ${zip}`}
+                          />
+                        </td>
+                        <td>{zip}</td>
+                        <td>{runCount}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="inline-actions">
+              <button
+                className="secondary"
+                onClick={() => setSelectedTrackerZips(filteredStateZips)}
+                disabled={filteredStateZips.length === 0}
+              >
+                Select Visible ZIPs
+              </button>
+              <button className="secondary" onClick={() => setSelectedTrackerZips([])}>
+                Clear ZIP Selection
+              </button>
+            </div>
           </div>
           <div>
-            <strong>Missing ZIPs</strong>
-            <p>{zipComparison.missing.length > 0 ? zipComparison.missing.join(', ') : 'No missing ZIPs from your request.'}</p>
+            <strong>Selected ZIP Output</strong>
+            <p>Copy/paste this ZIP list into the English prompt.</p>
+            <textarea rows={10} value={trackerZipOutput} readOnly />
+            <div className="inline-actions">
+              <button
+                className="secondary"
+                onClick={() => {
+                  navigator.clipboard.writeText(trackerZipOutput).catch(() => undefined);
+                }}
+                disabled={!trackerZipOutput}
+              >
+                Copy ZIP List
+              </button>
+            </div>
           </div>
-        </div>
-        <label>
-          Suggested Prompt (missing ZIPs only)
-          <textarea rows={4} value={missingZipPrompt} readOnly />
-        </label>
-        <div className="inline-actions">
-          <button
-            className="secondary"
-            onClick={() => setPrompt(missingZipPrompt)}
-            disabled={!missingZipPrompt}
-          >
-            Use This Prompt
-          </button>
         </div>
       </div>
 
