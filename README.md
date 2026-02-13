@@ -31,6 +31,7 @@ Copy `.env.example` -> `.env` and set:
 - `GOOGLE_PLACES_API_KEY` (required for Phase 1 collection)
 - `GOOGLE_TEXTSEARCH_UNIT_COST_USD` (optional, for API cost estimate in progress UI)
 - `GOOGLE_DETAILS_UNIT_COST_USD` (optional, for API cost estimate in progress UI)
+- `GOOGLE_MONTHLY_FREE_CREDIT_USD` (optional, used by Usage Data page to estimate paid amount)
 - `ANYMAIL_SEARCH_API_KEY` (required only for verification)
 - `ANYMAIL_UNIT_COST_USD` (default `0.01`)
 - `VERIFICATION_COST_BUFFER_MULTIPLIER` (default `1.15`)
@@ -56,6 +57,7 @@ Copy `.env.example` -> `.env` and set:
 - `POST /.netlify/functions/create-job`
 - `GET /.netlify/functions/get-job?jobId=...`
 - `GET /.netlify/functions/list-jobs`
+- `GET /.netlify/functions/list-usage`
 - `POST /.netlify/functions/run-collect-batch-background`
 - `POST /.netlify/functions/cancel-job`
 - `GET /.netlify/functions/list-results?jobId=...`
@@ -68,8 +70,20 @@ Copy `.env.example` -> `.env` and set:
 2. Collection: run collect batches until target unique firm count is reached.
 3. Results: inspect table, configure export columns/order, download CSV.
 4. Optional verification: estimate cost, set spend cap, run verify batches.
+5. Verification can be run on selected leads only (checkbox selection in Results), with configurable verification batch size.
+
+## Execution Model (Important)
+- Collection is **not** a continuous runner loop in the current version.
+- Jobs can show status `running` while idle between batch triggers.
+- Progress only advances when `run-collect-batch-background` is triggered (UI `Run Next Batch`).
+- UI `Auto Run` repeatedly triggers batches on a timer, but only while the page is open.
+- If the page is closed, auto-run stops; reopen the job and click `Auto Run` to resume from saved progress.
+- Verification follows the same batch model and is not continuous auto-processing.
+- Use `Cancel Job` to stop a running job early.
 
 ## Notes
 - V1 intentionally refuses collection when Places key is missing.
 - Stored data emphasizes provider IDs + derived fields for compliance posture.
 - Verification ledger (`email_verifications`) prevents double-paying on same provider+email.
+- Usage Data (`/usage`) reports aggregate API usage and estimated cost over time from run logs and configured unit costs.
+- Results page includes an indicator guide toggle for status meanings (e.g., `valid`, `unverified`, `none`).

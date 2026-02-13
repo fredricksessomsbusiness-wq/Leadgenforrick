@@ -22,6 +22,14 @@ const DEFAULT_COLUMNS = [
   'Notes'
 ];
 
+const statusBadgeClass = (status: string | null | undefined) => {
+  if (!status) return 'badge';
+  if (status === 'valid') return 'badge';
+  if (status === 'none' || status === 'unverified') return 'badge warn';
+  if (status === 'invalid' || status === 'risky') return 'badge danger';
+  return 'badge warn';
+};
+
 export default function ResultsPage({ params }: { params: { id: string } }) {
   const [rows, setRows] = useState<any[]>([]);
   const [columns, setColumns] = useState(DEFAULT_COLUMNS);
@@ -31,13 +39,24 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
   const [validOnly, setValidOnly] = useState(true);
   const [generateCandidates, setGenerateCandidates] = useState(false);
   const [maxAttempts, setMaxAttempts] = useState(3);
+  const [batchSize, setBatchSize] = useState(20);
+  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+  const [showGuide, setShowGuide] = useState(false);
   const [error, setError] = useState('');
 
   const loadResults = async () => {
     const res = await fetch(`/.netlify/functions/list-results?jobId=${params.id}`);
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || 'Failed to load results');
-    setRows(json.results ?? []);
+
+    const nextRows = json.results ?? [];
+    setRows(nextRows);
+
+    setSelectedLeadIds((prev) => {
+      const available = new Set(nextRows.map((r: any) => String(r.lead_id)));
+      const kept = prev.filter((id) => available.has(id));
+      return kept.length > 0 || prev.length > 0 ? kept : [...available];
+    });
   };
 
   useEffect(() => {
@@ -57,12 +76,31 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
     [params.id, columns]
   );
 
+  const selectedCount = selectedLeadIds.length;
+
+  const toggleLead = (leadId: string) => {
+    setSelectedLeadIds((prev) => (prev.includes(leadId) ? prev.filter((id) => id !== leadId) : [...prev, leadId]));
+  };
+
+  const selectAll = () => {
+    setSelectedLeadIds(rows.map((r) => String(r.lead_id)));
+  };
+
+  const clearAll = () => {
+    setSelectedLeadIds([]);
+  };
+
   const runEstimate = async () => {
     setError('');
+    if (selectedCount === 0) {
+      setError('Select at least one lead before estimating verification cost.');
+      return;
+    }
+
     const res = await fetch('/.netlify/functions/estimate-verification', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jobId: params.id })
+      body: JSON.stringify({ jobId: params.id, selectedLeadIds })
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || 'Failed estimate');
@@ -73,15 +111,19 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
     setVerifyBusy(true);
     setError('');
     try {
+      if (selectedCount === 0) throw new Error('Select at least one lead before running verification.');
+
       const res = await fetch('/.netlify/functions/run-verify-batch-background', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           jobId: params.id,
+          selectedLeadIds,
           spendCap: Number(spendCap),
           validOnly,
           generateCandidates,
-          maxAttemptsPerFirm: maxAttempts
+          maxAttemptsPerFirm: maxAttempts,
+          batchSize
         })
       });
       const json = await res.json();
@@ -97,6 +139,44 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
   return (
     <main>
       <h1>Results</h1>
+
+      <div className="card">
+        <h3>Indicator Guide</h3>
+        <div className="inline-actions" style={{ marginTop: 8 }}>
+          <button className="secondary" onClick={() => setShowGuide((v) => !v)}>
+            {showGuide ? 'Hide Indicator Guide' : 'Show Indicator Guide'}
+          </button>
+        </div>
+
+        {showGuide && (
+          <div className="summary-grid" style={{ marginTop: 12 }}>
+            <div className="stat-tile">
+              <p className="stat-k">Email Status: valid</p>
+              <p style={{ margin: 0 }}>Email was verified as deliverable.</p>
+            </div>
+            <div className="stat-tile">
+              <p className="stat-k">Email Status: unverified</p>
+              <p style={{ margin: 0 }}>Email found but not yet verified.</p>
+            </div>
+            <div className="stat-tile">
+              <p className="stat-k">Email Status: none</p>
+              <p style={{ margin: 0 }}>No email currently stored for that contact.</p>
+            </div>
+            <div className="stat-tile">
+              <p className="stat-k">Email Status: invalid/risky/catch_all</p>
+              <p style={{ margin: 0 }}>Verification checked it and marked it unsafe or uncertain.</p>
+            </div>
+            <div className="stat-tile">
+              <p className="stat-k">Found</p>
+              <p style={{ margin: 0 }}>Returned by Google Places query.</p>
+            </div>
+            <div className="stat-tile">
+              <p className="stat-k">New vs Duplicate</p>
+              <p style={{ margin: 0 }}>New was inserted to your DB; duplicate already existed and was skipped.</p>
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="card">
         <h3>Export Builder</h3>
@@ -119,7 +199,15 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
 
       <div className="card">
         <h3>Verify Emails (Optional)</h3>
-        <div className="grid grid-2">
+        <p>
+          Selected leads: <strong>{selectedCount}</strong>. Verification runs only on selected leads.
+        </p>
+        <div className="inline-actions">
+          <button className="secondary" onClick={selectAll}>Select All</button>
+          <button className="secondary" onClick={clearAll}>Clear Selection</button>
+        </div>
+
+        <div className="grid grid-2" style={{ marginTop: 12 }}>
           <label>
             <input type="checkbox" checked={validOnly} onChange={(e) => setValidOnly(e.target.checked)} /> Valid-only enforcement
           </label>
@@ -142,12 +230,22 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
             />
           </label>
           <label>
+            Verification batch size
+            <input
+              type="number"
+              value={batchSize}
+              min={1}
+              max={200}
+              onChange={(e) => setBatchSize(Number(e.target.value))}
+            />
+          </label>
+          <label>
             Max spend cap ($)
             <input value={spendCap} onChange={(e) => setSpendCap(e.target.value)} />
           </label>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <div className="inline-actions">
           <button onClick={runEstimate}>Estimate Cost</button>
           <button className="secondary" onClick={runVerifyBatch} disabled={verifyBusy}>Run Verify Batch</button>
         </div>
@@ -157,34 +255,50 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
 
       <div className="card">
         <h3>Lead Table</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>Firm</th>
-              <th>Phone</th>
-              <th>Website</th>
-              <th>Contact</th>
-              <th>Email</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, idx) => {
-              const lead = Array.isArray(r.leads) ? r.leads[0] : r.leads;
-              const contact = Array.isArray(r.contacts) ? r.contacts[0] : r.contacts;
-              return (
-                <tr key={`${r.lead_id}-${idx}`}>
-                  <td>{lead?.name}</td>
-                  <td>{lead?.phone}</td>
-                  <td>{lead?.website}</td>
-                  <td>{contact?.full_name}</td>
-                  <td>{contact?.email}</td>
-                  <td>{contact?.email_status}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Select</th>
+                <th>Firm</th>
+                <th>Phone</th>
+                <th>Website</th>
+                <th>Contact</th>
+                <th>Email</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, idx) => {
+                const lead = Array.isArray(r.leads) ? r.leads[0] : r.leads;
+                const contact = Array.isArray(r.contacts) ? r.contacts[0] : r.contacts;
+                const leadId = String(r.lead_id);
+                const selected = selectedLeadIds.includes(leadId);
+
+                return (
+                  <tr key={`${r.lead_id}-${idx}`}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => toggleLead(leadId)}
+                        aria-label={`Select ${lead?.name ?? 'lead'}`}
+                      />
+                    </td>
+                    <td>{lead?.name}</td>
+                    <td>{lead?.phone}</td>
+                    <td>{lead?.website}</td>
+                    <td>{contact?.full_name}</td>
+                    <td>{contact?.email}</td>
+                    <td>
+                      <span className={statusBadgeClass(contact?.email_status)}>{contact?.email_status ?? 'none'}</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
       {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
     </main>

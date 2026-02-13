@@ -3,15 +3,28 @@ import { withErrorHandling, json } from './_http';
 import { supabaseAdmin } from '../../lib/supabase';
 import { estimateVerificationCost } from '../../lib/verification';
 
+const parseLeadIds = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+};
+
 const handler: Handler = withErrorHandling(async (event) => {
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
-  const { jobId } = JSON.parse(event.body ?? '{}');
+  const body = JSON.parse(event.body ?? '{}');
+  const jobId = body.jobId as string;
+  const selectedLeadIds = parseLeadIds(body.selectedLeadIds);
   if (!jobId) return json(400, { error: 'jobId is required' });
 
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('job_results')
     .select('lead_id, leads!inner(primary_contact_id), contacts!job_results_primary_contact_id_fkey(id,email,email_status)')
     .eq('job_id', jobId);
+
+  if (selectedLeadIds.length > 0) {
+    query = query.in('lead_id', selectedLeadIds);
+  }
+
+  const { data, error } = await query;
 
   if (error) throw error;
 
@@ -27,7 +40,7 @@ const handler: Handler = withErrorHandling(async (event) => {
     .update({ verification_status: 'estimated', verification_estimate_json: estimate })
     .eq('id', jobId);
 
-  return json(200, { estimate });
+  return json(200, { estimate, selected_count: selectedLeadIds.length || (data ?? []).length });
 });
 
 export { handler };

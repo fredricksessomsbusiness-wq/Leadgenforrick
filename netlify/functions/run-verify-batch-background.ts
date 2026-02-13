@@ -4,6 +4,11 @@ import { supabaseAdmin } from '../../lib/supabase';
 import { env } from '../../lib/env';
 import { verifyEmail, buildEmailCandidates } from '../../lib/verification';
 
+const parseLeadIds = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+};
+
 const handler: Handler = withErrorHandling(async (event) => {
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
 
@@ -13,6 +18,8 @@ const handler: Handler = withErrorHandling(async (event) => {
   const generateCandidates = Boolean(body.generateCandidates ?? false);
   const validOnly = body.validOnly !== false;
   const maxAttemptsPerFirm = Number(body.maxAttemptsPerFirm ?? 3);
+  const batchSize = Math.max(1, Math.min(200, Number(body.batchSize ?? 20)));
+  const selectedLeadIds = parseLeadIds(body.selectedLeadIds);
 
   if (!jobId) return json(400, { error: 'jobId is required' });
   if (!spendCap || spendCap <= 0) return json(400, { error: 'spendCap is required and must be > 0' });
@@ -30,11 +37,17 @@ const handler: Handler = withErrorHandling(async (event) => {
     .update({ verification_status: 'running', verification_spend_cap: spendCap })
     .eq('id', jobId);
 
-  const { data: rows, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('job_results')
     .select('lead_id, leads!inner(id,website,primary_contact_id), contacts!job_results_primary_contact_id_fkey(id,first_name,last_name,email,email_status)')
     .eq('job_id', jobId)
-    .limit(20);
+    .limit(batchSize);
+
+  if (selectedLeadIds.length > 0) {
+    query = query.in('lead_id', selectedLeadIds);
+  }
+
+  const { data: rows, error } = await query;
 
   if (error) throw error;
 
@@ -107,7 +120,9 @@ const handler: Handler = withErrorHandling(async (event) => {
     done,
     verifiedCount,
     spendActual: Number(spendActual.toFixed(2)),
-    spendCap
+    spendCap,
+    selected_count: selectedLeadIds.length || (rows ?? []).length,
+    batch_size: batchSize
   });
 });
 
