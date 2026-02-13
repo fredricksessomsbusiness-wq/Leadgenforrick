@@ -331,20 +331,36 @@ export default function ResultsPage({ params }: { params: { id: string } }) {
       <div className="card">
         <h3>Export Builder</h3>
         <p>Choose columns and order.</p>
-        <div className="grid grid-2">
+        <div className="export-list">
           {columns.map((column, idx) => (
-            <div key={column} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <span style={{ minWidth: 190 }}>{column}</span>
-              <button className="secondary" onClick={() => reorder(idx, -1)}>Up</button>
-              <button className="secondary" onClick={() => reorder(idx, 1)}>Down</button>
+            <div key={column} className="export-row">
+              <div className="export-col-name">
+                <span className="export-index">{idx + 1}</span>
+                <span>{column}</span>
+              </div>
+              <div className="export-actions">
+                <button className="secondary" onClick={() => reorder(idx, -1)} disabled={idx === 0}>
+                  Move Up
+                </button>
+                <button
+                  className="secondary"
+                  onClick={() => reorder(idx, 1)}
+                  disabled={idx === columns.length - 1}
+                >
+                  Move Down
+                </button>
+              </div>
             </div>
           ))}
         </div>
-        <p style={{ marginTop: 12 }}>
+        <div className="inline-actions">
+          <button className="secondary" onClick={() => setColumns(DEFAULT_COLUMNS)}>
+            Reset Default Order
+          </button>
           <a href={exportUrl}>
             <button>Export CSV</button>
           </a>
-        </p>
+        </div>
       </div>
 
       <div className="card">
