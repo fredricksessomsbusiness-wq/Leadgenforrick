@@ -29,8 +29,6 @@ const STATE_CODES = [
   'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'
 ] as const;
 
-const USPS_ZIP_DATASET_URL = 'https://cdn.statically.io/gh/pseudosavant/USPSZIPCodes/main/dist/ZIPCodes.json';
-
 const areaSummary = (plan?: ParsedPlan): string => {
   if (!plan) return 'unknown';
   if (plan.geo_mode === 'radius') {
@@ -80,6 +78,7 @@ export default function CreateJobPage() {
   const [zipSearch, setZipSearch] = useState('');
   const [selectedTrackerZips, setSelectedTrackerZips] = useState<string[]>([]);
   const [stateZipMap, setStateZipMap] = useState<Record<string, string[]>>({});
+  const [zipDatasetLoading, setZipDatasetLoading] = useState(false);
   const [zipDatasetError, setZipDatasetError] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -104,33 +103,29 @@ export default function CreateJobPage() {
   }, []);
 
   useEffect(() => {
-    const loadZipDataset = async () => {
+    const state = zipTrackerState;
+    if (stateZipMap[state]?.length) return;
+
+    const loadStateZips = async () => {
+      setZipDatasetLoading(true);
+      setZipDatasetError('');
       try {
-        const res = await fetch(USPS_ZIP_DATASET_URL);
-        if (!res.ok) throw new Error(`ZIP dataset fetch failed (${res.status})`);
-        const data = (await res.json()) as Record<string, { state: string }>;
-        const map = new Map<string, Set<string>>();
-
-        for (const [zip, detail] of Object.entries(data)) {
-          if (!/^\d{5}$/.test(zip)) continue;
-          const state = String(detail?.state ?? '').toUpperCase();
-          if (!STATE_CODES.includes(state as (typeof STATE_CODES)[number])) continue;
-          if (!map.has(state)) map.set(state, new Set<string>());
-          map.get(state)!.add(zip);
-        }
-
-        const normalized: Record<string, string[]> = {};
-        for (const state of STATE_CODES) {
-          normalized[state] = Array.from(map.get(state) ?? new Set<string>()).sort();
-        }
-        setStateZipMap(normalized);
+        const res = await fetch(`/.netlify/functions/list-state-zips?state=${encodeURIComponent(state)}`);
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || `Failed to load ZIPs for ${state}`);
+        const zips = Array.isArray(json.zips)
+          ? json.zips.filter((z: unknown): z is string => typeof z === 'string' && /^\d{5}$/.test(z))
+          : [];
+        setStateZipMap((prev) => ({ ...prev, [state]: zips }));
       } catch (e) {
-        setZipDatasetError(e instanceof Error ? e.message : 'Failed to load ZIP dataset');
+        setZipDatasetError(e instanceof Error ? e.message : `Failed to load ZIPs for ${state}`);
+      } finally {
+        setZipDatasetLoading(false);
       }
     };
 
-    loadZipDataset().catch(() => undefined);
-  }, []);
+    loadStateZips().catch(() => undefined);
+  }, [zipTrackerState, stateZipMap]);
 
   const parsePlan = async () => {
     setBusy(true);
@@ -422,6 +417,7 @@ export default function CreateJobPage() {
             <input value={zipSearch} onChange={(e) => setZipSearch(e.target.value)} placeholder="Type ZIP prefix..." />
           </label>
         </div>
+        {zipDatasetLoading && <p>Loading ZIPs for {zipTrackerState}...</p>}
         {zipDatasetError && <p style={{ color: 'var(--danger)' }}>ZIP dataset load error: {zipDatasetError}</p>}
         <div className="summary-grid">
           <div className="stat-tile">
