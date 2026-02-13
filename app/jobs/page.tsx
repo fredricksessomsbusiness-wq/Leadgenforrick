@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
 interface JobListItem {
@@ -69,16 +70,19 @@ export default function JobsOverviewPage() {
   return (
     <main>
       <h1>All Lead Lists</h1>
+      <p className="page-subnav">
+        <Link href="/usage">Usage Data</Link>
+      </p>
       <p>Select one or multiple requests on the left. Outputs appear on the right.</p>
       {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
 
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', alignItems: 'start' }}>
-        <div className="card" style={{ maxHeight: '70vh', overflow: 'auto' }}>
+      <div className="dashboard-shell">
+        <div className="card dashboard-left">
           <h3>Requests</h3>
           {jobs.map((job) => (
             <label
               key={job.id}
-              style={{ display: 'block', border: '1px solid var(--line)', borderRadius: 8, padding: 10, marginBottom: 8 }}
+              className="job-item"
             >
               <input
                 type="checkbox"
@@ -95,41 +99,54 @@ export default function JobsOverviewPage() {
           ))}
         </div>
 
-        <div className="card" style={{ overflow: 'auto' }}>
+        <div className="card">
           <h3>Table Output</h3>
-          <p>
-            Selected requests: {summary.totalJobs} | Rows: {summary.totalRows} | Unique firms: {summary.uniqueLeads}
-          </p>
-          <table>
-            <thead>
-              <tr>
-                <th>Request ID</th>
-                <th>Firm</th>
-                <th>Phone</th>
-                <th>Website</th>
-                <th>Contact</th>
-                <th>Email</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, idx) => {
-                const lead = Array.isArray(r.leads) ? r.leads[0] : r.leads;
-                const contact = Array.isArray(r.contacts) ? r.contacts[0] : r.contacts;
-                return (
-                  <tr key={`${r.job_id}-${r.lead_id}-${idx}`}>
-                    <td>{r.job_id}</td>
-                    <td>{lead?.name}</td>
-                    <td>{lead?.phone}</td>
-                    <td>{lead?.website}</td>
-                    <td>{contact?.full_name}</td>
-                    <td>{contact?.email}</td>
-                    <td>{contact?.email_status}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="summary-grid">
+            <div className="stat-tile">
+              <p className="stat-k">Selected Requests</p>
+              <p className="stat-v">{summary.totalJobs}</p>
+            </div>
+            <div className="stat-tile">
+              <p className="stat-k">Rows</p>
+              <p className="stat-v">{summary.totalRows}</p>
+            </div>
+            <div className="stat-tile">
+              <p className="stat-k">Unique Firms</p>
+              <p className="stat-v">{summary.uniqueLeads}</p>
+            </div>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Request ID</th>
+                  <th>Firm</th>
+                  <th>Phone</th>
+                  <th>Website</th>
+                  <th>Contact</th>
+                  <th>Email</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, idx) => {
+                  const lead = Array.isArray(r.leads) ? r.leads[0] : r.leads;
+                  const contact = Array.isArray(r.contacts) ? r.contacts[0] : r.contacts;
+                  return (
+                    <tr key={`${r.job_id}-${r.lead_id}-${idx}`}>
+                      <td>{r.job_id}</td>
+                      <td>{lead?.name}</td>
+                      <td>{lead?.phone}</td>
+                      <td>{lead?.website}</td>
+                      <td>{contact?.full_name}</td>
+                      <td>{contact?.email}</td>
+                      <td>{contact?.email_status}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </main>

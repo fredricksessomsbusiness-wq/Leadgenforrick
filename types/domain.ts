@@ -41,6 +41,7 @@ export interface ParsedPlan {
   geo_mode: GeoMode;
   geo_params: GeoParams;
   target_firm_count: number;
+  max_searches: number;
   toggles_json: CollectionToggles;
   output_columns: string[];
   export_row_mode: ExportRowMode;

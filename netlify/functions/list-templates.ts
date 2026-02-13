@@ -4,13 +4,14 @@ import { supabaseAdmin } from '../../lib/supabase';
 
 const handler: Handler = withErrorHandling(async () => {
   const { data, error } = await supabaseAdmin
-    .from('jobs')
-    .select('id,user_prompt,status,progress_count,target_firm_count,created_at,finished_at,parsed_plan_json')
+    .from('job_templates')
+    .select('id,name,description,plan_json,created_at,updated_at,is_active')
+    .eq('is_active', true)
     .order('created_at', { ascending: false })
-    .limit(300);
+    .limit(200);
 
   if (error) throw error;
-  return json(200, { jobs: data ?? [] });
+  return json(200, { templates: data ?? [] });
 });
 
 export { handler };

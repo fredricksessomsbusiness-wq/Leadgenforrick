@@ -28,7 +28,10 @@ export function PlanEditor({ plan, raw, setRaw }: Props) {
         onChange={(e) => setRaw(e.target.value)}
         placeholder="Generated plan JSON appears here"
       />
-      <p>JSON status: {parsed ? 'valid' : 'invalid'}</p>
+      <p>
+        JSON status:{' '}
+        <span className={`badge ${parsed ? '' : 'danger'}`}>{parsed ? 'valid' : 'invalid'}</span>
+      </p>
     </div>
   );
 }

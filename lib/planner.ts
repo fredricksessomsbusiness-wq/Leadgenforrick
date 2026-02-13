@@ -1,6 +1,17 @@
 import { z } from 'zod';
 import type { ParsedPlan } from '../types/domain';
 
+const NC_ZIP_SWEEP_DEFAULT = [
+  '27601', '27603', '27604', '27606', '27607', '27609', '27610', '27612', '27613', '27615',
+  '27701', '27703', '27705', '27707', '27713',
+  '27513', '27518', '27519', '27539',
+  '28078', '28202', '28203', '28204', '28205', '28207', '28210', '28211',
+  '27101', '27103',
+  '27401', '27408',
+  '28401',
+  '28301'
+];
+
 const numberFromPrompt = (prompt: string, fallback: number): number => {
   const match = prompt.match(/\b(\d{2,5})\b/);
   return match ? Number(match[1]) : fallback;
@@ -8,9 +19,10 @@ const numberFromPrompt = (prompt: string, fallback: number): number => {
 
 const extractGeoMode = (prompt: string): ParsedPlan['geo_mode'] => {
   const p = prompt.toLowerCase();
-  if (p.includes('zip sweep') || p.includes('zip_sweep') || p.includes('zip')) return 'zip_sweep';
-  if (p.includes('state') || p.includes('north carolina') || p.includes('nc')) return 'state';
-  return 'radius';
+  if (/within\s+\d+\s*miles?/i.test(prompt)) return 'radius';
+  if (p.includes('zip sweep') || p.includes('zip_sweep') || p.includes('zip code') || p.includes('zip')) return 'zip_sweep';
+  if (p.includes('state') || p.includes('north carolina') || p.includes('nc')) return 'zip_sweep';
+  return 'zip_sweep';
 };
 
 const extractRadius = (prompt: string): number => {
@@ -63,6 +75,7 @@ export const parsePromptToPlan = (prompt: string): ParsedPlan => {
     geo_mode: geoMode,
     geo_params: {},
     target_firm_count: numberFromPrompt(prompt, 500),
+    max_searches: 100,
     toggles_json: {
       geo_mode: geoMode,
       deep_crawl: false,
@@ -84,15 +97,17 @@ export const parsePromptToPlan = (prompt: string): ParsedPlan => {
 
   if (geoMode === 'zip_sweep') {
     plan.geo_params = {
-      zip_list: ['27513', '27514', '27516', '27517', '27519', '27529', '27601', '27701']
+      zip_list: NC_ZIP_SWEEP_DEFAULT
     };
   }
 
+  // Backward compatible fallback if an edited plan still sets geo_mode to state.
   if (geoMode === 'state') {
     const stateCode = /\bnorth carolina\b|\bnc\b/i.test(prompt) ? 'NC' : 'NC';
     plan.geo_params = {
       state_code: stateCode,
-      city_cluster_strategy: 'major_cities'
+      city_cluster_strategy: 'zip_clusters',
+      zip_list: NC_ZIP_SWEEP_DEFAULT
     };
   }
 

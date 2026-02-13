@@ -2,6 +2,7 @@ import { supabaseAdmin } from '../supabase';
 import type { ParsedPlan } from '../../types/domain';
 
 export const createJob = async (userPrompt: string, plan: ParsedPlan) => {
+  const maxSearches = Number.isFinite(Number(plan.max_searches)) ? Number(plan.max_searches) : 100;
   const { data, error } = await supabaseAdmin
     .from('jobs')
     .insert({
@@ -9,6 +10,8 @@ export const createJob = async (userPrompt: string, plan: ParsedPlan) => {
       parsed_plan_json: plan,
       toggles_json: plan.toggles_json,
       target_firm_count: plan.target_firm_count,
+      max_searches: maxSearches,
+      searches_executed: 0,
       allow_reinclude: plan.toggles_json.allow_reinclude,
       status: 'queued'
     })

@@ -26,6 +26,27 @@ const handler: Handler = withErrorHandling(async (event) => {
   if (job.status === 'completed') {
     return json(200, { done: true, progressCount: job.progress_count ?? 0 });
   }
+  const maxSearches = Number(job.max_searches ?? 0);
+  const searchesExecuted = Number(job.searches_executed ?? 0);
+  if (maxSearches > 0 && searchesExecuted >= maxSearches) {
+    await appendRunLog(jobId, {
+      event: 'search_budget_reached',
+      max_searches: maxSearches,
+      searches_executed: searchesExecuted
+    });
+    await updateJobProgress(jobId, {
+      status: 'completed',
+      finished_at: new Date().toISOString(),
+      error_log: `Stopped after reaching max_searches (${maxSearches}).`
+    });
+    return json(200, {
+      done: true,
+      reason: 'max_searches_reached',
+      searchesExecuted,
+      maxSearches,
+      progressCount: job.progress_count ?? 0
+    });
+  }
   const plan = job.parsed_plan_json as ParsedPlan;
   const segments = buildGeoSegments(plan);
 
@@ -108,6 +129,7 @@ const handler: Handler = withErrorHandling(async (event) => {
 
   await updateJobProgress(jobId, {
     progress_count: progressCount,
+    searches_executed: searchesExecuted + 1,
     current_keyword_offset: keywordOffset,
     current_segment_offset: segmentOffset,
     status: done ? 'completed' : 'running',

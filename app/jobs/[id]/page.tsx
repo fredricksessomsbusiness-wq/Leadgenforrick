@@ -32,12 +32,14 @@ interface CollectBatchLog {
   estimated_api_cost_usd?: number;
 }
 
+const AUTO_RUN_DELAY_MS = 2200;
 const toNumber = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
 
 export default function JobProgressPage({ params }: { params: { id: string } }) {
   const [job, setJob] = useState<Job | null>(null);
   const [busy, setBusy] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
+  const [autoRun, setAutoRun] = useState(false);
   const [error, setError] = useState('');
 
   const load = async () => {
@@ -55,7 +57,20 @@ export default function JobProgressPage({ params }: { params: { id: string } }) 
     return () => clearInterval(timer);
   }, [params.id]);
 
-  const runBatch = async () => {
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const saved = window.localStorage.getItem(`auto_run_job_${params.id}`);
+    if (saved === '1') setAutoRun(true);
+  }, [params.id]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(`auto_run_job_${params.id}`, autoRun ? '1' : '0');
+  }, [params.id, autoRun]);
+
+  const runBatch = async (triggeredByAutoRun = false) => {
+    if (busy || cancelBusy) return;
+
     setBusy(true);
     setError('');
     try {
@@ -77,6 +92,7 @@ export default function JobProgressPage({ params }: { params: { id: string } }) 
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Batch failed');
+      if (triggeredByAutoRun) setAutoRun(false);
     } finally {
       setBusy(false);
     }
@@ -93,6 +109,7 @@ export default function JobProgressPage({ params }: { params: { id: string } }) 
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Cancel failed');
+      setAutoRun(false);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Cancel failed');
@@ -108,6 +125,33 @@ export default function JobProgressPage({ params }: { params: { id: string } }) 
 
   const canceled = job?.status === 'failed' && (job.error_log ?? '').includes('Canceled by user');
   const done = job?.status === 'completed' || canceled || !!(job && job.progress_count >= job.target_firm_count);
+  const readyForManualNextBatch = !done && !autoRun && !busy && !cancelBusy;
+
+  useEffect(() => {
+    if (!autoRun || done || busy || cancelBusy) return;
+
+    const timer = setTimeout(() => {
+      runBatch(true).catch(() => undefined);
+    }, AUTO_RUN_DELAY_MS);
+
+    return () => clearTimeout(timer);
+  }, [autoRun, done, busy, cancelBusy, job?.progress_count, job?.status]);
+
+  useEffect(() => {
+    if (!autoRun) return;
+
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => window.removeEventListener('beforeunload', beforeUnload);
+  }, [autoRun]);
+
+  useEffect(() => {
+    if (done && autoRun) setAutoRun(false);
+  }, [done, autoRun]);
 
   const collectLogs = useMemo(
     () =>
@@ -153,15 +197,55 @@ export default function JobProgressPage({ params }: { params: { id: string } }) 
   return (
     <main>
       <h1>Collection Progress</h1>
+      <div className="inline-actions" style={{ marginBottom: 12 }}>
+        <Link href="/">
+          <button className="secondary">Create Job</button>
+        </Link>
+        <Link href="/jobs">
+          <button className="secondary">All Jobs / Lists</button>
+        </Link>
+        <Link href="/usage">
+          <button className="secondary">Usage Data</button>
+        </Link>
+        <Link href={`/jobs/${params.id}/results`}>
+          <button className="secondary">Current Job Results</button>
+        </Link>
+      </div>
       <div className="card">
         <p>Job: {params.id}</p>
-        <p>Status: {canceled ? 'canceled' : job?.status ?? 'loading...'}</p>
+        <p>
+          Status:{' '}
+          <span className={`badge ${canceled ? 'danger' : job?.status === 'running' ? 'warn' : ''}`}>
+            {canceled ? 'canceled' : job?.status ?? 'loading...'}
+          </span>
+        </p>
         <p>
           Progress: {job?.progress_count ?? 0} / {job?.target_firm_count ?? 0} firms
         </p>
         <div className="progress">
           <span style={{ width: `${pct}%` }} />
         </div>
+
+        {!done && (
+          <p style={{ marginTop: 10 }}>
+            Next action:{' '}
+            <span className={`badge ${autoRun ? '' : readyForManualNextBatch ? 'warn' : ''}`}>
+              {autoRun
+                ? 'Auto Run is handling batches'
+                : readyForManualNextBatch
+                  ? 'Click Run Next Batch now'
+                  : busy
+                    ? 'Batch is currently running'
+                    : 'Waiting'}
+            </span>
+          </p>
+        )}
+
+        {autoRun && !done && (
+          <p style={{ marginTop: 10 }}>
+            Auto-run is active. Keep this page open. If you close/reload, open this job again and click Auto Run to continue.
+          </p>
+        )}
 
         <div className="grid grid-2" style={{ marginTop: 12 }}>
           <div>
@@ -175,11 +259,36 @@ export default function JobProgressPage({ params }: { params: { id: string } }) 
           </div>
           <div>
             <strong>Live Summary</strong>
-            <p style={{ margin: '6px 0 0' }}>Found (API matches): {metrics.found}</p>
-            <p style={{ margin: '6px 0 0' }}>New leads added: {metrics.added}</p>
-            <p style={{ margin: '6px 0 0' }}>Duplicates skipped: {metrics.duplicates}</p>
-            <p style={{ margin: '6px 0 0' }}>API calls: {metrics.totalApiCalls} (search {metrics.textSearchCalls}, details {metrics.detailsCalls})</p>
-            <p style={{ margin: '6px 0 0' }}>Estimated Places API cost: ${metrics.estimatedApiCostUsd.toFixed(4)}</p>
+            <div className="summary-grid">
+              <div className="stat-tile">
+                <p className="stat-k">Found Matches</p>
+                <p className="stat-v">{metrics.found}</p>
+              </div>
+              <div className="stat-tile">
+                <p className="stat-k">New Leads</p>
+                <p className="stat-v">{metrics.added}</p>
+              </div>
+              <div className="stat-tile">
+                <p className="stat-k">Duplicates</p>
+                <p className="stat-v">{metrics.duplicates}</p>
+              </div>
+              <div className="stat-tile">
+                <p className="stat-k">API Calls</p>
+                <p className="stat-v">{metrics.totalApiCalls}</p>
+              </div>
+              <div className="stat-tile">
+                <p className="stat-k">Search Calls</p>
+                <p className="stat-v">{metrics.textSearchCalls}</p>
+              </div>
+              <div className="stat-tile">
+                <p className="stat-k">Details Calls</p>
+                <p className="stat-v">{metrics.detailsCalls}</p>
+              </div>
+              <div className="stat-tile">
+                <p className="stat-k">Estimated Cost (Places)</p>
+                <p className="stat-v">${metrics.estimatedApiCostUsd.toFixed(4)}</p>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -190,8 +299,11 @@ export default function JobProgressPage({ params }: { params: { id: string } }) 
           </p>
         )}
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          <button onClick={runBatch} disabled={busy || cancelBusy || done}>Run Next Batch</button>
+        <div className="inline-actions">
+          <button onClick={() => runBatch(false)} disabled={busy || cancelBusy || done || autoRun}>Run Next Batch Now</button>
+          <button className="secondary" onClick={() => setAutoRun((v) => !v)} disabled={busy || cancelBusy || done}>
+            {autoRun ? 'Pause Auto Run' : 'Auto Run'}
+          </button>
           <button className="secondary" onClick={cancelJob} disabled={busy || cancelBusy || done}>
             {cancelBusy ? 'Canceling...' : 'Cancel Job'}
           </button>
@@ -206,7 +318,9 @@ export default function JobProgressPage({ params }: { params: { id: string } }) 
 
       <div className="card">
         <h3>Run Logs</h3>
-        <pre>{JSON.stringify(job?.run_logs ?? [], null, 2)}</pre>
+        <div className="table-wrap">
+          <pre style={{ margin: 0, border: 0, borderRadius: 0 }}>{JSON.stringify(job?.run_logs ?? [], null, 2)}</pre>
+        </div>
       </div>
     </main>
   );
