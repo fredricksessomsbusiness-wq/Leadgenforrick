@@ -9,6 +9,11 @@ const parseLeadIds = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
 };
+const parseJobIds = (value: unknown, fallbackJobId: string): string[] => {
+  if (!Array.isArray(value)) return [fallbackJobId];
+  const parsed = value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+  return parsed.length > 0 ? parsed : [fallbackJobId];
+};
 
 const dateDaysAgoIso = (days: number) => {
   const date = new Date();
@@ -23,6 +28,7 @@ const handler: Handler = withErrorHandling(async (event) => {
   const body = JSON.parse(event.body ?? '{}');
   const jobId = body.jobId as string;
   const selectedLeadIds = parseLeadIds(body.selectedLeadIds);
+  const scopeJobIds = parseJobIds(body.scopeJobIds, jobId);
   const periodDays = Math.max(1, Math.min(365, Number(body.periodDays ?? 30)));
   const batchSize = Math.max(1, Math.min(200, Number(body.batchSize ?? 20)));
   const minAds = Math.max(0, Number(body.minAds ?? 1));
@@ -47,7 +53,7 @@ const handler: Handler = withErrorHandling(async (event) => {
   let query = supabaseAdmin
     .from('job_results')
     .select('lead_id, leads!inner(id,name,website,city,state)')
-    .eq('job_id', jobId)
+    .in('job_id', scopeJobIds)
     .limit(10000);
   if (selectedLeadIds.length > 0) query = query.in('lead_id', selectedLeadIds);
   const { data: rows, error } = await query;

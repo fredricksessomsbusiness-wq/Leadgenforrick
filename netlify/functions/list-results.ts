@@ -20,7 +20,7 @@ const handler: Handler = withErrorHandling(async (event) => {
 
   const { data, error } = await supabaseAdmin
     .from('job_results')
-    .select('job_id, lead_id, leads!inner(*), contacts!job_results_primary_contact_id_fkey(*)')
+    .select('job_id, lead_id, created_at, leads!inner(*), contacts!job_results_primary_contact_id_fkey(*)')
     .in('job_id', jobIds)
     .limit(10000);
 
@@ -50,7 +50,25 @@ const handler: Handler = withErrorHandling(async (event) => {
     adsByLead.set(key, [...(adsByLead.get(key) ?? []), ad]);
   }
 
-  const merged = (data ?? []).map((r: any) => ({
+  const byLeadId = new Map<string, any>();
+  for (const row of data ?? []) {
+    const leadId = String(row.lead_id);
+    const existing = byLeadId.get(leadId);
+    if (!existing) {
+      byLeadId.set(leadId, {
+        ...row,
+        source_job_ids: [row.job_id],
+        source_result_created_ats: [row.created_at]
+      });
+      continue;
+    }
+    const sourceJobIds = new Set<string>([...(existing.source_job_ids ?? []), row.job_id]);
+    const sourceCreatedAts = [...(existing.source_result_created_ats ?? []), row.created_at];
+    existing.source_job_ids = Array.from(sourceJobIds);
+    existing.source_result_created_ats = sourceCreatedAts;
+  }
+
+  const merged = Array.from(byLeadId.values()).map((r: any) => ({
     ...r,
     signals: signalsByLead.get(r.lead_id) ?? [],
     lead_contacts: contactsByLead.get(r.lead_id) ?? [],

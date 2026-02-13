@@ -12,6 +12,11 @@ const parseLeadIds = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
 };
+const parseJobIds = (value: unknown, fallbackJobId: string): string[] => {
+  if (!Array.isArray(value)) return [fallbackJobId];
+  const parsed = value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+  return parsed.length > 0 ? parsed : [fallbackJobId];
+};
 
 const handler: Handler = withErrorHandling(async (event) => {
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
@@ -22,6 +27,7 @@ const handler: Handler = withErrorHandling(async (event) => {
   const leadsPerCompany = Math.max(1, Math.min(3, Number(body.leadsPerCompany ?? 3)));
   const batchSize = Math.max(1, Math.min(200, Number(body.batchSize ?? 20)));
   const selectedLeadIds = parseLeadIds(body.selectedLeadIds);
+  const scopeJobIds = parseJobIds(body.scopeJobIds, jobId);
   const spendCap = Number(body.spendCap ?? 0);
 
   if (!jobId) return json(400, { error: 'jobId is required' });
@@ -43,7 +49,7 @@ const handler: Handler = withErrorHandling(async (event) => {
   let query = supabaseAdmin
     .from('job_results')
     .select('lead_id, leads!inner(id,name,website,address,city,state)')
-    .eq('job_id', jobId)
+    .in('job_id', scopeJobIds)
     .limit(10000);
 
   if (selectedLeadIds.length > 0) {

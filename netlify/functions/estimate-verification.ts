@@ -7,18 +7,24 @@ const parseLeadIds = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
 };
+const parseJobIds = (value: unknown, fallbackJobId: string): string[] => {
+  if (!Array.isArray(value)) return [fallbackJobId];
+  const parsed = value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+  return parsed.length > 0 ? parsed : [fallbackJobId];
+};
 
 const handler: Handler = withErrorHandling(async (event) => {
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
   const body = JSON.parse(event.body ?? '{}');
   const jobId = body.jobId as string;
   const selectedLeadIds = parseLeadIds(body.selectedLeadIds);
+  const scopeJobIds = parseJobIds(body.scopeJobIds, jobId);
   if (!jobId) return json(400, { error: 'jobId is required' });
 
   let query = supabaseAdmin
     .from('job_results')
     .select('lead_id, leads!inner(primary_contact_id), contacts!job_results_primary_contact_id_fkey(id,email,email_status)')
-    .eq('job_id', jobId);
+    .in('job_id', scopeJobIds);
 
   if (selectedLeadIds.length > 0) {
     query = query.in('lead_id', selectedLeadIds);

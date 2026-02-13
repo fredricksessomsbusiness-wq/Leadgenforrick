@@ -7,18 +7,24 @@ const parseLeadIds = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
 };
+const parseJobIds = (value: unknown, fallbackJobId: string): string[] => {
+  if (!Array.isArray(value)) return [fallbackJobId];
+  const parsed = value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+  return parsed.length > 0 ? parsed : [fallbackJobId];
+};
 
 const handler: Handler = withErrorHandling(async (event) => {
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
   const body = JSON.parse(event.body ?? '{}');
   const jobId = body.jobId as string;
   const selectedLeadIds = parseLeadIds(body.selectedLeadIds);
+  const scopeJobIds = parseJobIds(body.scopeJobIds, jobId);
   const mode = (body.mode === 'deep' ? 'deep' : 'budget') as EnrichmentMode;
   const leadsPerCompany = Math.max(1, Math.min(3, Number(body.leadsPerCompany ?? 3)));
 
   if (!jobId) return json(400, { error: 'jobId is required' });
 
-  let query = supabaseAdmin.from('job_results').select('lead_id').eq('job_id', jobId);
+  let query = supabaseAdmin.from('job_results').select('lead_id').in('job_id', scopeJobIds);
   if (selectedLeadIds.length > 0) query = query.in('lead_id', selectedLeadIds);
 
   const { data, error } = await query;
