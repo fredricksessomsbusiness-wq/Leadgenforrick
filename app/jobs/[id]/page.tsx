@@ -42,10 +42,21 @@ export default function JobProgressPage({ params }: { params: { id: string } }) 
   const [autoRun, setAutoRun] = useState(false);
   const [error, setError] = useState('');
 
+  const parseJsonSafe = async <T,>(res: Response): Promise<T> => {
+    const text = await res.text();
+    if (!text) return {} as T;
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      return {} as T;
+    }
+  };
+
   const load = async () => {
     const res = await fetch(`/.netlify/functions/get-job?jobId=${params.id}`);
-    const json = await res.json();
+    const json = await parseJsonSafe<{ error?: string; job?: Job }>(res);
     if (!res.ok) throw new Error(json.error || 'Failed to load job');
+    if (!json.job) throw new Error('Failed to load job');
     setJob(json.job);
   };
 
@@ -107,7 +118,7 @@ export default function JobProgressPage({ params }: { params: { id: string } }) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ jobId: params.id })
       });
-      const json = await res.json();
+      const json = await parseJsonSafe<{ error?: string }>(res);
       if (!res.ok) throw new Error(json.error || 'Cancel failed');
       setAutoRun(false);
       await load();
