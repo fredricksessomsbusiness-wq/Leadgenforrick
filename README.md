@@ -38,9 +38,12 @@ Copy `.env.example` -> `.env` and set:
 - `ANYMAIL_SEARCH_API_KEY` (required only for verification)
 - `ANYMAIL_UNIT_COST_USD` (default `0.01`)
 - `VERIFICATION_COST_BUFFER_MULTIPLIER` (default `1.15`)
-- `ADS_LIBRARY_PROVIDER` (`none` or `custom_http`)
+- `ADS_LIBRARY_PROVIDER` (`none`, `custom_http`, or `dataforseo`)
 - `ADS_LIBRARY_API_URL` (required when `ADS_LIBRARY_PROVIDER=custom_http`)
 - `ADS_LIBRARY_API_KEY` (optional bearer token for provider)
+- `DATAFORSEO_LOGIN` (required when `ADS_LIBRARY_PROVIDER=dataforseo`)
+- `DATAFORSEO_PASSWORD` (required when `ADS_LIBRARY_PROVIDER=dataforseo`)
+- `DATAFORSEO_LOCATION_CODE` (optional, default `2840` for US)
 - `ADS_LIBRARY_UNIT_COST_USD` (default `0.01`)
 - `ADS_LIBRARY_COST_BUFFER_MULTIPLIER` (default `1.10`)
 
