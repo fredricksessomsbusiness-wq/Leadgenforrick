@@ -67,8 +67,10 @@ export default function JobsOverviewPage() {
     return { totalJobs, totalRows, uniqueLeads };
   }, [rows, selected]);
 
+  const selectedPrimaryJobId = selected[0] ?? null;
+
   return (
-    <main>
+    <main className="jobs-main">
       <h1>All Lead Lists</h1>
       <p className="page-subnav">
         <Link href="/usage">Usage Data</Link>
@@ -82,7 +84,7 @@ export default function JobsOverviewPage() {
           {jobs.map((job) => (
             <label
               key={job.id}
-              className="job-item"
+              className="job-item jobs-request-item"
             >
               <input
                 type="checkbox"
@@ -95,12 +97,33 @@ export default function JobsOverviewPage() {
               <p style={{ margin: '4px 0 0' }}>
                 Progress: {job.progress_count}/{job.target_firm_count}
               </p>
+              <div className="inline-actions" style={{ marginTop: 8 }}>
+                <Link href={`/jobs/${job.id}`}>
+                  <button className="secondary">Continue Run</button>
+                </Link>
+                <Link href={`/jobs/${job.id}/results`}>
+                  <button className="secondary">Open Results</button>
+                </Link>
+              </div>
             </label>
           ))}
         </div>
 
-        <div className="card">
+        <div className="card jobs-table-card">
           <h3>Table Output</h3>
+          <div className="inline-actions">
+            <button className="secondary" onClick={() => setSelected(jobs.map((j) => j.id))}>
+              Select All Requests
+            </button>
+            <button className="secondary" onClick={() => setSelected([])}>
+              Clear Request Selection
+            </button>
+            {selectedPrimaryJobId && (
+              <Link href={`/jobs/${selectedPrimaryJobId}`}>
+                <button>Continue Selected</button>
+              </Link>
+            )}
+          </div>
           <div className="summary-grid">
             <div className="stat-tile">
               <p className="stat-k">Selected Requests</p>
@@ -115,8 +138,16 @@ export default function JobsOverviewPage() {
               <p className="stat-v">{summary.uniqueLeads}</p>
             </div>
           </div>
-          <div className="table-wrap">
-            <table>
+          <p className="muted-small">Tip: use your mouse wheel/trackpad to scroll this table horizontally.</p>
+          <div
+            className="table-wrap jobs-horizontal-scroll"
+            onWheel={(e) => {
+              if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+                e.currentTarget.scrollLeft += e.deltaY;
+              }
+            }}
+          >
+            <table className="jobs-output-table">
               <thead>
                 <tr>
                   <th>Request ID</th>

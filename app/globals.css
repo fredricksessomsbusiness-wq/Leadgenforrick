@@ -196,6 +196,26 @@ pre {
   align-items: start;
 }
 
+.jobs-main {
+  max-width: 1440px;
+}
+
+.jobs-request-item {
+  padding: 12px;
+}
+
+.jobs-table-card {
+  min-height: 72vh;
+}
+
+.jobs-output-table {
+  min-width: 1180px;
+}
+
+.jobs-horizontal-scroll {
+  overscroll-behavior-x: contain;
+}
+
 .dashboard-left {
   max-height: 72vh;
   overflow: auto;
